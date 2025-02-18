@@ -1,0 +1,30 @@
+name: "Build and Test"
+on:
+  push:
+
+jobs:
+  sign:
+    name: "Build and Test"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+
+      - name: Install latest nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+          components: rustfmt, clippy
+
+      - name: Cargo check
+        run: cargo check --workspace
+
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Cargo lint
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build release
+        run: cargo build

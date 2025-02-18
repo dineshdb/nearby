@@ -30,6 +30,7 @@ impl Config {
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type")]
+#[serde(rename_all = "lowercase")]
 pub enum Connection {
     Ble(BLEConnection),
 }

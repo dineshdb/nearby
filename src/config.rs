@@ -1,11 +1,9 @@
-use std::{process::Output, sync::Mutex};
-
-use serde::Deserialize;
-
 use figment::{
     providers::{Env, Format, Toml},
     Figment,
 };
+use serde::Deserialize;
+use std::{process::Output, sync::Mutex};
 
 #[derive(Deserialize, Debug)]
 pub struct Config {

@@ -5,6 +5,7 @@ use config::{get_config, Connection};
 use futures::{pin_mut, stream::SelectAll, StreamExt};
 use std::collections::HashSet;
 mod config;
+mod delayed;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -63,13 +64,13 @@ async fn main() -> anyhow::Result<()> {
                         let distance = 1000.0;
                         let connection  = config.get_connection_by_mac(&addr.to_string());
                         if let Some(ble_connection) = connection.and_then(Connection::get_ble){
-                            println!("Device removed: {addr} {} {distance:.2}m", ble_connection.name);
+                            println!("{addr} {} {distance:.2}m Removed", ble_connection.name);
                             // todo: add proper logging
                             // todo: run delayed device lock just in case the device comes back online again
                             ble_connection.run_proximity_actions(distance);
 
                         } else {
-                            println!("Device removed: {addr}");
+                            println!("{addr} Removed");
                         }
                     }
                     _ => (),

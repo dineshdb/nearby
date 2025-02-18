@@ -1,3 +1,4 @@
+use crate::delayed::Delayed;
 use figment::{
     providers::{Env, Format, Toml},
     Figment,
@@ -107,11 +108,17 @@ pub enum Command {
 // fixme: don't use sudo, use proper permissions
 // fixme: use dbus to lock/unlock
 static LOCKED: Mutex<bool> = Mutex::new(false);
+static DELAYED_LOCK: Mutex<Option<Delayed>> = Mutex::new(None);
+
 impl Command {
     pub fn run(&self) -> anyhow::Result<()> {
         let locked = *LOCKED.lock().unwrap();
         match self {
             Command::Unlock => {
+                // cancel the delayed lock
+                if let Some(delayed) = &mut *DELAYED_LOCK.lock().unwrap() {
+                    delayed.cancel();
+                }
                 if locked {
                     println!("Unlocking desktop...");
                     run("sudo loginctl unlock-sessions")?;
@@ -121,10 +128,18 @@ impl Command {
 
             // fixme: unlocking might not be good idea if it wasn't locked automatically
             Command::Lock => {
+                let duration = std::time::Duration::from_secs(15);
                 if !locked {
-                    println!("Locking desktop...");
-                    run("sudo loginctl lock-sessions")?;
-                    *LOCKED.lock().unwrap() = true;
+                    println!("Locking desktop in {:?}", duration);
+                    if let Some(delayed) = &mut *DELAYED_LOCK.lock().unwrap() {
+                        delayed.cancel();
+                    }
+                    // wait before actually locking the desktop
+                    let delayed = Delayed::new(duration, || async {
+                        run("sudo loginctl lock-sessions").expect("error running lock command");
+                        *LOCKED.lock().unwrap() = true;
+                    });
+                    *DELAYED_LOCK.lock().unwrap() = Some(delayed);
                 }
             }
             Command::String(cmd) => {

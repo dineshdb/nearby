@@ -1,12 +1,14 @@
-run:
-	cp config/nearby.toml $HOME/.config/nearby/config.toml
+run: setup
 	dbox exec fedora-41 'cargo build'
 	cargo run
 
 build:
 	cargo build
 
-install:
+setup:
+	cp config/nearby.toml $HOME/.config/nearby/config.toml
+
+install: setup
 	dbox exec fedora-41 'cargo install --path . --force'
 	cp systemd/nearby.service $HOME/.config/systemd/user/nearby.service
 	systemctl --user daemon-reload

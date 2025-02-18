@@ -1,0 +1,8 @@
+[Unit]
+Description=Nearby Service
+
+[Service]
+ExecStart=/usr/bin/env nearby
+
+[Install]
+WantedBy=multi-user.target

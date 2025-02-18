@@ -1,20 +1,10 @@
 use bluer::{
-    Adapter, AdapterEvent, Address, DeviceEvent, DeviceProperty, DiscoveryFilter,
-    DiscoveryTransport,
+    AdapterEvent, Address, DeviceEvent, DeviceProperty, DiscoveryFilter, DiscoveryTransport,
 };
-use config::get_config;
+use config::{get_config, Connection};
 use futures::{pin_mut, stream::SelectAll, StreamExt};
-use std::{collections::HashSet, env};
+use std::collections::HashSet;
 mod config;
-
-async fn query_all_device_properties(adapter: &Adapter, addr: Address) -> bluer::Result<()> {
-    let device = adapter.device(addr)?;
-    let props = device.all_properties().await?;
-    for prop in props {
-        println!("    {:?}", &prop);
-    }
-    Ok(())
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -25,8 +15,6 @@ async fn main() -> anyhow::Result<()> {
         .filter_map(|c| c.get_ble())
         .map(|c| c.mac.parse::<Address>().unwrap())
         .collect();
-
-    let all_properties = env::args().any(|arg| arg == "--all-properties");
 
     env_logger::init();
     let session = bluer::Session::new().await?;
@@ -52,35 +40,40 @@ async fn main() -> anyhow::Result<()> {
                         if !ble_addresses.is_empty() && !ble_addresses.contains(&addr) {
                             continue;
                         }
-
-                        if all_properties {
-                            query_all_device_properties(&adapter, addr).await;
-                        } else {
-                            let device = adapter.device(addr)?;
-                            let rssi = device.rssi().await?.unwrap_or_default();
-                            let distance = distance_rssi(rssi);
-                            let connection  = config.get_connection_by_mac(&addr.to_string()).unwrap();
-                            let ble_connection = connection.get_ble().expect("ble connection expected");
-
+                        let device = adapter.device(addr)?;
+                        let rssi = device.rssi().await?.unwrap_or_default();
+                        let distance = distance_rssi(rssi);
+                        let connection  = config.get_connection_by_mac(&addr.to_string());
+                        if let Some(ble_connection) = connection.and_then(Connection::get_ble) {
+                            ble_connection.run_proximity_actions(distance);
                             println!(
                                 "{:?} {:?} {:.2}m",
                                 addr,
                                 ble_connection.name,
                                 distance,
                             );
-                        };
+                        }
 
                         // with changes
-                            let device = adapter.device(addr)?;
-                            let change_events = device.events().await?.map(move |evt| (addr, evt));
-                            all_change_events.push(change_events);
+                        let device = adapter.device(addr)?;
+                        let change_events = device.events().await?.map(move |evt| (addr, evt));
+                        all_change_events.push(change_events);
                     }
                     AdapterEvent::DeviceRemoved(addr) => {
-                        println!("Device removed: {addr}");
+                        let distance = 1000.0;
+                        let connection  = config.get_connection_by_mac(&addr.to_string());
+                        if let Some(ble_connection) = connection.and_then(Connection::get_ble){
+                            println!("Device removed: {addr} {} {distance:.2}m", ble_connection.name);
+                            // todo: add proper logging
+                            // todo: run delayed device lock just in case the device comes back online again
+                            ble_connection.run_proximity_actions(distance);
+
+                        } else {
+                            println!("Device removed: {addr}");
+                        }
                     }
                     _ => (),
                 }
-                println!();
             }
             Some((addr, DeviceEvent::PropertyChanged(property))) = all_change_events.next() => {
                 match property {
@@ -88,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
                         let connection  = config.get_connection_by_mac(&addr.to_string()).unwrap();
                         let ble_connection = connection.get_ble().expect("ble connection expected");
                         let distance = distance_rssi(rssi);
+                        ble_connection.run_proximity_actions(distance);
 
                         println!(
                             "{:?} {:?} {:.2}m",
@@ -111,6 +105,5 @@ async fn main() -> anyhow::Result<()> {
 pub fn distance_rssi(rssi: i16) -> f32 {
     // 10 ^ ((-69 – (-60))/(10 * 2))
     let exponent = (-69 - rssi) as f32 / (10_i16.pow(2)) as f32;
-    let distance = 10_f32.powf(exponent);
-    distance
+    10_f32.powf(exponent)
 }

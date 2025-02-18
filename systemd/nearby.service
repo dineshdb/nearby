@@ -5,4 +5,4 @@ Description=Nearby Service
 ExecStart=/usr/bin/env nearby
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

@@ -21,7 +21,7 @@ impl Config {
     pub fn get_connection_by_mac(&self, mac: &str) -> Option<&Connection> {
         self.connections()
             .iter()
-            .find(|c| c.get_ble().map_or(false, |ble| ble.mac == mac))
+            .find(|c| c.get_ble().is_some_and(|ble| ble.mac == mac))
             .copied()
     }
 }

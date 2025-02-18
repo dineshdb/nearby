@@ -3,6 +3,9 @@ run:
 	dbox exec fedora-41 'cargo build'
 	cargo run
 
+build:
+	cargo build
+
 install:
 	dbox exec fedora-41 'cargo install --path . --force'
 	cp systemd/nearby.service $HOME/.config/systemd/user/nearby.service

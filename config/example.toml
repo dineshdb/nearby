@@ -1,0 +1,10 @@
+# ~/.config/nearby/config.toml
+[[connection]]
+name = "My Watch"
+type = "ble"
+mac = "AA:BB:CC:DD:EE:FF"
+owner = "self"
+actions = [
+	{ type = "away", threshold=2.0, command = "lock"},
+	{ type = "nearby", threshold=1.0, command = "unlock"},
+]

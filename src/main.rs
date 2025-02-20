@@ -4,6 +4,7 @@ use bluer::{
 use config::{get_config, Connection};
 use futures::{pin_mut, stream::SelectAll, StreamExt};
 use std::collections::HashSet;
+mod commands;
 mod config;
 mod delayed;
 

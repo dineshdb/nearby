@@ -1,4 +1,4 @@
-use crate::commands::Command;
+use crate::{commands::Command, distance_rssi};
 use figment::{
     providers::{Env, Format, Toml},
     Figment,
@@ -18,11 +18,39 @@ impl Config {
             .unwrap_or_default()
     }
 
-    pub fn get_connection_by_mac(&self, mac: &str) -> Option<&Connection> {
+    pub fn update_rssi(&mut self, mac: &str, rssi: i16) {
+        if let Some(connections) = &mut self.connection {
+            for connection in connections.iter_mut() {
+                match connection {
+                    Connection::Ble(ble) => {
+                        if ble.mac == mac {
+                            ble.rssi = Some(rssi);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn should_lock(&self) -> bool {
         self.connections()
             .iter()
-            .find(|c| c.get_ble().is_some_and(|ble| ble.mac == mac))
-            .copied()
+            .filter_map(|c| c.get_ble())
+            .any(|ble| ble.should_lock())
+    }
+
+    pub fn can_unlock(&self) -> bool {
+        self.connections()
+            .iter()
+            .filter_map(|c| c.get_ble())
+            .any(|ble| ble.can_unlock())
+    }
+
+    pub fn keep_unlocked(&self) -> bool {
+        self.connections()
+            .iter()
+            .filter_map(|c| c.get_ble())
+            .any(|ble| ble.keep_unlocked())
     }
 }
 
@@ -43,33 +71,55 @@ impl Connection {
 
 #[derive(Deserialize, Debug)]
 pub struct BLEConnection {
-    pub name: String,
     pub mac: String,
+    pub rssi: Option<i16>,
     pub actions: Option<Vec<Action>>,
 }
 
 impl BLEConnection {
-    pub fn run_proximity_actions(&self, distance: f32) {
-        if let Some(actions) = &self.actions {
-            for action in actions {
-                match action {
+    pub fn can_unlock(&self) -> bool {
+        let distance = self.rssi.map(distance_rssi).unwrap_or(1000.0);
+        self.actions
+            .as_ref()
+            .map(|actions| {
+                actions.iter().any(|a| match a {
                     Action::Nearby(action) => {
-                        if distance > action.threshold {
-                            continue;
-                        }
-
-                        action.command.run().unwrap();
+                        distance < action.threshold && action.command == Command::Unlock
                     }
+                    Action::Away(_) => false,
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    pub fn keep_unlocked(&self) -> bool {
+        let distance = self.rssi.map(distance_rssi).unwrap_or(1000.0);
+        self.actions
+            .as_ref()
+            .map(|actions| {
+                actions.iter().any(|a| match a {
+                    Action::Nearby(action) => {
+                        distance < action.threshold && action.command == Command::KeepUnlocked
+                    }
+                    Action::Away(_) => false,
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    pub fn should_lock(&self) -> bool {
+        let distance = self.rssi.map(distance_rssi).unwrap_or(1000.0);
+        self.actions
+            .as_ref()
+            .map(|actions| {
+                actions.iter().any(|a| match a {
+                    Action::Nearby(_) => false,
                     Action::Away(action) => {
-                        if distance < action.threshold {
-                            continue;
-                        }
-
-                        action.command.run().unwrap();
+                        distance > action.threshold && action.command == Command::Lock
                     }
-                }
-            }
-        }
+                })
+            })
+            .unwrap_or(false)
     }
 }
 

@@ -1,17 +1,25 @@
 use bluer::{
     AdapterEvent, Address, DeviceEvent, DeviceProperty, DiscoveryFilter, DiscoveryTransport,
 };
-use config::{get_config, Connection};
+use commands::run;
+use config::get_config;
 use futures::{pin_mut, stream::SelectAll, StreamExt};
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+use tokio::{spawn, time::sleep};
 mod commands;
 mod config;
-mod delayed;
+mod idle;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let config = get_config()?;
+    let config = Arc::new(Mutex::new(get_config()?));
     let ble_addresses: HashSet<_> = config
+        .lock()
+        .unwrap()
         .connections()
         .iter()
         .filter_map(|c| c.get_ble())
@@ -34,6 +42,39 @@ async fn main() -> anyhow::Result<()> {
 
     let mut all_change_events = SelectAll::new();
 
+    let cfg = config.clone();
+    spawn(async move {
+        loop {
+            sleep(std::time::Duration::from_secs(1)).await;
+
+            let can_unlock = cfg.lock().unwrap().can_unlock();
+            if can_unlock {
+                println!("Unlocking...");
+                run("sudo loginctl unlock-sessions").unwrap();
+                continue;
+            }
+
+            let should_lock = cfg.lock().unwrap().should_lock();
+            if !should_lock {
+                continue;
+            }
+
+            let keep_unlocked = cfg.lock().unwrap().keep_unlocked();
+            if keep_unlocked {
+                continue;
+            }
+
+            let (idle, idle_since) = idle::get_idle_hint().await.unwrap();
+            let idle_since = UNIX_EPOCH + Duration::from_micros(idle_since);
+            let idle_for = SystemTime::now().duration_since(idle_since).unwrap();
+
+            if idle && idle_for > Duration::from_secs(10) {
+                println!("Idle for: {:?}", idle_for);
+                run("sudo loginctl lock-sessions").unwrap();
+            }
+        }
+    });
+
     loop {
         tokio::select! {
             Some(device_event) = device_events.next() => {
@@ -44,17 +85,9 @@ async fn main() -> anyhow::Result<()> {
                         }
                         let device = adapter.device(addr)?;
                         let rssi = device.rssi().await?.unwrap_or_default();
-                        let distance = distance_rssi(rssi);
-                        let connection  = config.get_connection_by_mac(&addr.to_string());
-                        if let Some(ble_connection) = connection.and_then(Connection::get_ble) {
-                            ble_connection.run_proximity_actions(distance);
-                            println!(
-                                "{:?} {:?} {:.2}m",
-                                addr,
-                                ble_connection.name,
-                                distance,
-                            );
-                        }
+
+                        config.lock().unwrap().update_rssi(&addr.to_string(), rssi);
+                        println!("{:?} {:.2}",addr,distance_rssi(rssi));
 
                         // with changes
                         let device = adapter.device(addr)?;
@@ -62,17 +95,8 @@ async fn main() -> anyhow::Result<()> {
                         all_change_events.push(change_events);
                     }
                     AdapterEvent::DeviceRemoved(addr) => {
-                        let distance = 1000.0;
-                        let connection  = config.get_connection_by_mac(&addr.to_string());
-                        if let Some(ble_connection) = connection.and_then(Connection::get_ble){
-                            println!("{addr} {} {distance:.2}m Removed", ble_connection.name);
-                            // todo: add proper logging
-                            // todo: run delayed device lock just in case the device comes back online again
-                            ble_connection.run_proximity_actions(distance);
-
-                        } else {
-                            println!("{addr} Removed");
-                        }
+                        println!("{addr} Removed");
+                        config.lock().unwrap().update_rssi(&addr.to_string(), -99);
                     }
                     _ => (),
                 }
@@ -80,17 +104,8 @@ async fn main() -> anyhow::Result<()> {
             Some((addr, DeviceEvent::PropertyChanged(property))) = all_change_events.next() => {
                 match property {
                     DeviceProperty::Rssi(rssi) => {
-                        let connection  = config.get_connection_by_mac(&addr.to_string()).unwrap();
-                        let ble_connection = connection.get_ble().expect("ble connection expected");
-                        let distance = distance_rssi(rssi);
-                        ble_connection.run_proximity_actions(distance);
-
-                        println!(
-                            "{:?} {:?} {:.2}m",
-                            addr,
-                            ble_connection.name,
-                            distance,
-                        );
+                        config.lock().unwrap().update_rssi(&addr.to_string(), rssi);
+                        println!("{:?} {:.2}m", addr, distance_rssi(rssi));
                     },
                     _ => {
                         // println!("    {property:?}");

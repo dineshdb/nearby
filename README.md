@@ -15,11 +15,13 @@ security risk to unlock a device when a device is near. Locking it is fine since
 that's not a security risk. Paired device and better security approach to
 unlocking will be explored in the future.
 
-## Roadmap
+## Roadmap and Changelog
 
 - [ ] Secure unlocking of devices
 - [ ] System Tray for Quick Access
-- [ ] Detect user activity before locking the device
+- [x] Lock device when you're away and after 10 seconds of inactivity. This is
+      to prevent accidental lockinng when your device fails to send its signal
+- [x] Add a `keep-unlocked` option for more secure replacement for `unlock`
 
 ## LICENSE
 
